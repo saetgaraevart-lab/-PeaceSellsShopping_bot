@@ -4,15 +4,21 @@ from telegram import (
     Update, InlineKeyboardButton, InlineKeyboardMarkup
 )
 from telegram.ext import (
-    ApplicationBuilder, CommandHandler, MessageHandler, filters,
-    CallbackQueryHandler, ContextTypes
+    Application, CommandHandler, MessageHandler, CallbackQueryHandler,
+    ContextTypes, filters
 )
+from flask import Flask, request
 
 # ====== Настройки ======
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-ALLOWED_USERS = [431417737, 1117100895]  # вы оба
-
+ALLOWED_USERS = [431417737, 1117100895]
 DATA_FILE = "shopping_data.json"
+
+PORT = int(os.environ.get("PORT", 8443))
+APP_URL = os.environ.get("RENDER_EXTERNAL_URL", "https://peacesellsshopping-bot.onrender.com")
+
+# ====== Flask для webhook ======
+flask_app = Flask(__name__)
 
 # ====== Работа с данными ======
 def load_data():
@@ -58,7 +64,7 @@ def get_keyboard_items(category):
     keyboard.append([InlineKeyboardButton("⬅️ Назад", callback_data="view_list")])
     return InlineKeyboardMarkup(keyboard)
 
-# ====== Основные команды ======
+# ====== Логика бота ======
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if user_id not in ALLOWED_USERS:
@@ -80,7 +86,6 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     data_text = query.data
 
-    # Главное меню
     if data_text == "main_menu":
         await query.edit_message_text("🏠 Главное меню", reply_markup=get_keyboard_main())
 
@@ -158,13 +163,27 @@ async def notify_others(context, user_id, message):
             except:
                 pass
 
-# ====== Основной запуск ======
-def main():
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CallbackQueryHandler(button))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, message_handler))
-    app.run_polling()
+# ====== Настройка Telegram webhook ======
+application = Application.builder().token(BOT_TOKEN).build()
+application.add_handler(CommandHandler("start", start))
+application.add_handler(CallbackQueryHandler(button))
+application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, message_handler))
+
+@flask_app.route(f"/{BOT_TOKEN}", methods=["POST"])
+def webhook():
+    update = Update.de_json(request.get_json(force=True), application.bot)
+    application.update_queue.put_nowait(update)
+    return "ok"
+
+@flask_app.route("/")
+def index():
+    return "Bot is running!", 200
 
 if __name__ == "__main__":
-    main()
+    # Устанавливаем webhook
+    import asyncio
+    async def set_webhook():
+        await application.bot.set_webhook(f"{APP_URL}/{BOT_TOKEN}")
+    asyncio.run(set_webhook())
+
+    flask_app.run(host="0.0.0.0", port=PORT)
