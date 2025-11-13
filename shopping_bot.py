@@ -164,8 +164,9 @@ application.add_handler(CommandHandler("clear", clear))
 application.add_handler(MessageHandler(filters.COMMAND, start))
 application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, start))
 application.add_handler(MessageHandler(filters.ALL, start))
-application.add_handler(MessageHandler(filters.UpdateType.CALLBACK_QUERY, callback_handler))
+from telegram.ext import CallbackQueryHandler
 
+application.add_handler(CallbackQueryHandler(callback_handler))
 # === Webhook установка ===
 @app.before_first_request
 def init_webhook():
