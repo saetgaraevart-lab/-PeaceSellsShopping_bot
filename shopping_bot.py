@@ -1,4 +1,4 @@
-import os
+  import os
 import json
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import (
@@ -11,18 +11,18 @@ from telegram.ext import (
 )
 
 # ---------------- Настройки ----------------
-TOKEN = os.getenv("BOT_TOKEN")
-WEBHOOK_URL = os.getenv("WEBHOOK_URL")
-port = int(os.environ.get("PORT", "5000"))
+TOKEN = os.getenv("BOT_TOKEN")          # Токен бота
+WEBHOOK_URL = os.getenv("WEBHOOK_URL")  # Публичный URL Render
+PORT = int(os.environ.get("PORT", "5000"))
+AUTHORIZED_USERS = [431417737, 1117100895]  # Ваши Telegram ID
 DATA_FILE = "shopping_data.json"
-AUTHORIZED_USERS = [431417737, 1117100895]  # Замените на ваши Telegram ID
 
-# ---------------- Загрузка / сохранение данных ----------------
+# ---------------- Загрузка / сохранение ----------------
 if os.path.exists(DATA_FILE):
     with open(DATA_FILE, "r", encoding="utf-8") as f:
         shopping_list = json.load(f)
 else:
-    shopping_list = {}  # {category: {"emoji": "🥦", "items": [{"name":"Молоко","bought":False}, ...]}}
+    shopping_list = {}
 
 def save_data():
     with open(DATA_FILE, "w", encoding="utf-8") as f:
@@ -45,11 +45,10 @@ def build_list_markup():
         items = info["items"]
         keyboard.append([InlineKeyboardButton(f"{emoji} {cat}", callback_data="none")])
         for item in items:
-            name = item["name"]
             status = "✅" if item["bought"] else "❌"
             keyboard.append([
-                InlineKeyboardButton(f"{status} {name}", callback_data=f"toggle:{cat}:{name}"),
-                InlineKeyboardButton("🗑", callback_data=f"del:{cat}:{name}")
+                InlineKeyboardButton(f"{status} {item['name']}", callback_data=f"toggle:{cat}:{item['name']}"),
+                InlineKeyboardButton("🗑", callback_data=f"del:{cat}:{item['name']}")
             ])
     keyboard.append([InlineKeyboardButton("⬅️ Назад", callback_data="back_main")])
     return InlineKeyboardMarkup(keyboard)
@@ -68,10 +67,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in AUTHORIZED_USERS:
         await update.message.reply_text("🚫 У вас нет доступа к боту.")
         return
-    await update.message.reply_text(
-        "👋 Привет! Я твой бот для покупок.\nВыбери действие:",
-        reply_markup=main_menu()
-    )
+    await update.message.reply_text("👋 Привет! Выбери действие:", reply_markup=main_menu())
 
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -83,7 +79,6 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("🚫 У вас нет доступа к боту.")
         return
 
-    # ---------- Главное меню ----------
     if data == "show_list":
         if not shopping_list:
             await query.edit_message_text("🛒 Список пуст.", reply_markup=main_menu())
@@ -121,7 +116,6 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == "back_main":
         await query.edit_message_text("Главное меню:", reply_markup=main_menu())
 
-# ---------- Обработка текста ----------
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_data = context.user_data
     text = update.message.text.strip()
@@ -129,7 +123,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("🚫 У вас нет доступа к боту.")
         return
 
-    # ---------- Новая категория ----------
+    # Новая категория
     if user_data.get("awaiting_category_name"):
         user_data["new_category_name"] = text
         user_data.pop("awaiting_category_name")
@@ -145,7 +139,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"Категория {emoji} {category_name} добавлена!", reply_markup=main_menu())
         return
 
-    # ---------- Добавление товаров ----------
+    # Добавление товаров
     if user_data.get("awaiting_items"):
         items = [i.strip() for i in text.split(",") if i.strip()]
         category = user_data.get("selected_category")
@@ -157,7 +151,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         save_data()
         user_data.pop("awaiting_items")
         user_data.pop("selected_category", None)
-        # Оповещение для других пользователей
         for uid in AUTHORIZED_USERS:
             if uid != update.effective_user.id:
                 try:
@@ -173,13 +166,13 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(button_callback))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_text))
-    print("Бот запущен...")
+    print("Бот запущен на webhook...")
     app.run_webhook(
-    listen="0.0.0.0",
-    port=port,
-    url_path=TOKEN,
-    webhook_url=f"{WEBHOOK_URL}/{TOKEN}"
-)
+        listen="0.0.0.0",
+        port=PORT,
+        url_path=TOKEN,
+        webhook_url=f"{WEBHOOK_URL}/{TOKEN}"
+    )
 
 if __name__ == "__main__":
     main()
