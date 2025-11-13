@@ -6,7 +6,8 @@ from telegram.ext import (
     ContextTypes
 )
 
-TOKEN = "8535214282:AAHBvWypQtAUitGIULYa2rbAYx-ue901II4"
+import os
+TOKEN = os.getenv("8535214282:AAHBvWypQtAUitGIULYa2rbAYx-ue901II4")
 DATA_FILE = Path("shopping_list.json")
 
 # Загрузка / сохранение данных
