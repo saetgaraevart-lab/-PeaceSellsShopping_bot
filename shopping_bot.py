@@ -7,7 +7,7 @@ from telegram.ext import (
 )
 
 import os
-TOKEN = os.getenv("8535214282:AAHBvWypQtAUitGIULYa2rbAYx-ue901II4")
+TOKEN = os.getenv("BOT_TOKEN")
 DATA_FILE = Path("shopping_list.json")
 
 # Загрузка / сохранение данных
