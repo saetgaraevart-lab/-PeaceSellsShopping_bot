@@ -11,9 +11,11 @@ from telegram.ext import (
 )
 
 # ---------------- Настройки ----------------
-TOKEN = os.getenv("BOT_TOKEN")  # Токен хранится в переменной окружения
+TOKEN = os.getenv("BOT_TOKEN")
+WEBHOOK_URL = os.getenv("WEBHOOK_URL")
+port = int(os.environ.get("PORT", "5000"))
 DATA_FILE = "shopping_data.json"
-AUTHORIZED_USERS = [123456789, 987654321]  # Замените на ваши Telegram ID
+AUTHORIZED_USERS = [431417737, 1117100895]  # Замените на ваши Telegram ID
 
 # ---------------- Загрузка / сохранение данных ----------------
 if os.path.exists(DATA_FILE):
@@ -172,7 +174,12 @@ def main():
     app.add_handler(CallbackQueryHandler(button_callback))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_text))
     print("Бот запущен...")
-    app.run_polling()
+    app.run_webhook(
+    listen="0.0.0.0",
+    port=port,
+    url_path=TOKEN,
+    webhook_url=f"{WEBHOOK_URL}/{TOKEN}"
+)
 
 if __name__ == "__main__":
     main()
