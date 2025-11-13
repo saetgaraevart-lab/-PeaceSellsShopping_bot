@@ -1,5 +1,6 @@
 import os
 import json
+import logging
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import (
     ApplicationBuilder,
@@ -10,10 +11,18 @@ from telegram.ext import (
     filters,
 )
 
+# ---------------- Логирование ----------------
+logging.basicConfig(
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    level=logging.INFO
+)
+logger = logging.getLogger(__name__)
+
 # ---------------- Настройки ----------------
-TOKEN = os.getenv("BOT_TOKEN")          # Токен бота
-WEBHOOK_URL = os.getenv("WEBHOOK_URL")  # Публичный URL Render
+TOKEN = os.getenv("BOT_TOKEN")          # Ваш токен от BotFather
+WEBHOOK_URL = os.getenv("WEBHOOK_URL")  # Публичный URL Render, например https://peacesellsshopping-bot.onrender.com
 PORT = int(os.environ.get("PORT", "5000"))
+
 AUTHORIZED_USERS = [431417737, 1117100895]  # Ваши Telegram ID
 DATA_FILE = "shopping_data.json"
 
@@ -151,6 +160,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         save_data()
         user_data.pop("awaiting_items")
         user_data.pop("selected_category", None)
+        # Уведомляем других пользователей
         for uid in AUTHORIZED_USERS:
             if uid != update.effective_user.id:
                 try:
@@ -166,7 +176,10 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(button_callback))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_text))
-    print("Бот запущен на webhook...")
+
+    logger.info("Бот запущен на webhook...")
+    logger.info(f"Listening on 0.0.0.0:{PORT}")
+
     app.run_webhook(
         listen="0.0.0.0",
         port=PORT,
