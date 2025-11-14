@@ -1,219 +1,178 @@
 import os
 import json
-from telegram import (
-    Update, InlineKeyboardButton, InlineKeyboardMarkup
-)
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import (
-    ApplicationBuilder, CommandHandler, CallbackQueryHandler,
-    MessageHandler, ContextTypes, filters
+    ApplicationBuilder,
+    CommandHandler,
+    CallbackQueryHandler,
+    MessageHandler,
+    ContextTypes,
+    filters,
 )
 
-# --- Настройка ---
+# ---------------- Настройки ----------------
+TOKEN = os.getenv("BOT_TOKEN")          # Токен бота
+WEBHOOK_URL = os.getenv("WEBHOOK_URL")  # Публичный URL Render
+PORT = int(os.environ.get("PORT", "5000"))
+AUTHORIZED_USERS = [431417737, 1117100895]  # Ваши Telegram ID
 DATA_FILE = "shopping_data.json"
-ALLOWED_USERS = [431417737, 1117100895]
 
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-
-if not BOT_TOKEN:
-    raise RuntimeError("Нет BOT_TOKEN в переменных окружения!")
-
-# --- Загрузка/сохранение JSON ---
-def load_data():
-    if not os.path.exists(DATA_FILE):
-        return {"categories": {}}
+# ---------------- Загрузка / сохранение ----------------
+if os.path.exists(DATA_FILE):
     with open(DATA_FILE, "r", encoding="utf-8") as f:
-        return json.load(f)
+        shopping_list = json.load(f)
+else:
+    shopping_list = {}
 
-def save_data(data):
+def save_data():
     with open(DATA_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+        json.dump(shopping_list, f, ensure_ascii=False, indent=2)
 
-data = load_data()
-
-# ----------------------- UI -----------------------
+# ---------------- Меню ----------------
 def main_menu():
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("🗂 Категории", callback_data="open_categories")],
-        [InlineKeyboardButton("➕ Добавить категорию", callback_data="add_category")],
-    ])
+    keyboard = [
+        [InlineKeyboardButton("🛍 Показать список", callback_data="show_list")],
+        [InlineKeyboardButton("➕ Добавить товары", callback_data="add_items")],
+        [InlineKeyboardButton("📂 Категории", callback_data="categories")],
+        [InlineKeyboardButton("🧹 Очистить всё", callback_data="clear_all")]
+    ]
+    return InlineKeyboardMarkup(keyboard)
 
-def categories_keyboard():
-    buttons = []
-    for name, info in data["categories"].items():
-        emoji = info.get("emoji", "📁")
-        buttons.append([InlineKeyboardButton(f"{emoji} {name}", callback_data=f"open_cat|{name}")])
-    return InlineKeyboardMarkup(buttons + [[InlineKeyboardButton("⬅ Назад", callback_data="back_main")]])
+def build_list_markup():
+    keyboard = []
+    for cat, info in shopping_list.items():
+        emoji = info.get("emoji", "")
+        items = info["items"]
+        keyboard.append([InlineKeyboardButton(f"{emoji} {cat}", callback_data="none")])
+        for item in items:
+            status = "✅" if item["bought"] else "❌"
+            keyboard.append([
+                InlineKeyboardButton(f"{status} {item['name']}", callback_data=f"toggle:{cat}:{item['name']}"),
+                InlineKeyboardButton("🗑", callback_data=f"del:{cat}:{item['name']}")
+            ])
+    keyboard.append([InlineKeyboardButton("⬅️ Назад", callback_data="back_main")])
+    return InlineKeyboardMarkup(keyboard)
 
-def category_items_keyboard(cat_name):
-    items = data["categories"][cat_name]["items"]
-    btns = []
+def categories_markup():
+    keyboard = []
+    for cat, info in shopping_list.items():
+        emoji = info.get("emoji", "")
+        keyboard.append([InlineKeyboardButton(f"{emoji} {cat}", callback_data=f"cat:{cat}")])
+    keyboard.append([InlineKeyboardButton("➕ Новая категория", callback_data="new_category")])
+    keyboard.append([InlineKeyboardButton("⬅️ Назад", callback_data="back_main")])
+    return InlineKeyboardMarkup(keyboard)
 
-    for i, item in enumerate(items):
-        status = "✅" if item["done"] else "🛒"
-        btns.append([
-            InlineKeyboardButton(f"{status} {item['name']}", callback_data=f"toggle_item|{cat_name}|{i}")
-        ])
-
-    btns.append([InlineKeyboardButton("➕ Добавить товар", callback_data=f"add_item|{cat_name}")])
-    btns.append([InlineKeyboardButton("🗑 Удалить товар", callback_data=f"delete_item|{cat_name}")])
-    btns.append([InlineKeyboardButton("⬅ Назад", callback_data="open_categories")])
-
-    return InlineKeyboardMarkup(btns)
-
-def deletion_keyboard(cat_name):
-    items = data["categories"][cat_name]["items"]
-    btns = []
-    for i, item in enumerate(items):
-        btns.append([
-            InlineKeyboardButton(f"Удалить {item['name']}", callback_data=f"confirm_delete|{cat_name}|{i}")
-        ])
-    btns.append([InlineKeyboardButton("⬅ Назад", callback_data=f"open_cat|{cat_name}")])
-    return InlineKeyboardMarkup(btns)
-
-# ----------------------- Handlers -----------------------
+# ---------------- Обработчики ----------------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id not in ALLOWED_USERS:
-        await update.message.reply_text("Нет доступа ❌")
+    if update.effective_user.id not in AUTHORIZED_USERS:
+        await update.message.reply_text("🚫 У вас нет доступа к боту.")
         return
+    await update.message.reply_text("👋 Привет! Выбери действие:", reply_markup=main_menu())
 
-    await update.message.reply_text("Привет! Это совместный список покупок 🛍", reply_markup=main_menu())
-
-
-async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+    data = query.data
+    user_id = query.from_user.id
 
-    user_id = update.effective_user.id
-    if user_id not in ALLOWED_USERS:
-        await query.edit_message_text("Нет доступа ❌")
+    if user_id not in AUTHORIZED_USERS:
+        await query.edit_message_text("🚫 У вас нет доступа к боту.")
         return
 
-    action = query.data
-
-    # --- Главное меню ---
-    if action == "open_categories":
-        await query.edit_message_text("Категории:", reply_markup=categories_keyboard())
-
-    elif action == "back_main":
+    if data == "show_list":
+        if not shopping_list:
+            await query.edit_message_text("🛒 Список пуст.", reply_markup=main_menu())
+        else:
+            await query.edit_message_text("🛒 Твой список:", reply_markup=build_list_markup())
+    elif data == "add_items":
+        context.user_data["awaiting_items"] = True
+        await query.edit_message_text("Введите товары через запятую. Потом выберите категорию.")
+    elif data.startswith("toggle:"):
+        _, cat, name = data.split(":", 2)
+        for item in shopping_list[cat]["items"]:
+            if item["name"] == name:
+                item["bought"] = not item["bought"]
+        save_data()
+        await query.edit_message_text("Обновлено!", reply_markup=build_list_markup())
+    elif data.startswith("del:"):
+        _, cat, name = data.split(":", 2)
+        shopping_list[cat]["items"] = [i for i in shopping_list[cat]["items"] if i["name"] != name]
+        save_data()
+        await query.edit_message_text("Удалено!", reply_markup=build_list_markup())
+    elif data == "clear_all":
+        shopping_list.clear()
+        save_data()
+        await query.edit_message_text("Список очищен!", reply_markup=main_menu())
+    elif data == "categories":
+        await query.edit_message_text("Выберите категорию:", reply_markup=categories_markup())
+    elif data == "new_category":
+        context.user_data["awaiting_category_name"] = True
+        await query.edit_message_text("Введите название новой категории:")
+    elif data.startswith("cat:"):
+        category = data.split(":",1)[1]
+        context.user_data["selected_category"] = category
+        await query.edit_message_text(f"Введите товары для категории {shopping_list[category]['emoji']} {category}:")
+        context.user_data["awaiting_items"] = True
+    elif data == "back_main":
         await query.edit_message_text("Главное меню:", reply_markup=main_menu())
 
-    # --- Создание категорий ---
-    elif action == "add_category":
-        context.user_data["mode"] = "adding_category"
-        await query.edit_message_text("Введите название категории и эмодзи через точку:\n\nНапример:\n🍞 Хлеб и выпечка")
-
-    # --- Открыть категорию ---
-    elif action.startswith("open_cat"):
-        _, cat_name = action.split("|")
-        await query.edit_message_text(f"Категория: {cat_name}", reply_markup=category_items_keyboard(cat_name))
-
-    # --- Добавить товар ---
-    elif action.startswith("add_item"):
-        _, cat_name = action.split("|")
-        context.user_data["mode"] = "adding_item"
-        context.user_data["cat"] = cat_name
-        await query.edit_message_text("Введите название товара:")
-
-    # --- Переключить статус ---
-    elif action.startswith("toggle_item"):
-        _, cat, idx = action.split("|")
-        idx = int(idx)
-        data["categories"][cat]["items"][idx]["done"] ^= True
-        save_data(data)
-
-        await query.edit_message_text(f"Категория: {cat}", reply_markup=category_items_keyboard(cat))
-
-        # Оповестить второго пользователя
-        for uid in ALLOWED_USERS:
-            if uid != user_id:
-                await context.bot.send_message(uid, f"Изменён статус товара в категории {cat}")
-
-    # --- Удаление ---
-    elif action.startswith("delete_item"):
-        _, cat = action.split("|")
-        await query.edit_message_text("Выберите товар для удаления:", reply_markup=deletion_keyboard(cat))
-
-    elif action.startswith("confirm_delete"):
-        _, cat, idx = action.split("|")
-        idx = int(idx)
-        deleted = data["categories"][cat]["items"].pop(idx)
-        save_data(data)
-
-        await query.edit_message_text(
-            f"Удалено: {deleted['name']}\nКатегория: {cat}",
-            reply_markup=category_items_keyboard(cat)
-        )
-
-        # Уведомление
-        for uid in ALLOWED_USERS:
-            if uid != user_id:
-                await context.bot.send_message(uid, f"Товар удалён: {deleted['name']}")
-
-# ----------------------- Text Input -----------------------
-async def text_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    if user_id not in ALLOWED_USERS:
-        await update.message.reply_text("Нет доступа ❌")
+async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_data = context.user_data
+    text = update.message.text.strip()
+    if update.effective_user.id not in AUTHORIZED_USERS:
+        await update.message.reply_text("🚫 У вас нет доступа к боту.")
         return
 
-    mode = context.user_data.get("mode")
-
-    # --- Добавление категории ---
-    if mode == "adding_category":
-        text = update.message.text.strip()
-        parts = text.split(" ", 1)
-
-        if len(parts) == 1:
-            emoji = "📁"
-            name = parts[0]
-        else:
-            emoji, name = parts[0], parts[1]
-
-        data["categories"][name] = {"emoji": emoji, "items": []}
-        save_data(data)
-
-        context.user_data["mode"] = None
-        await update.message.reply_text("Категория добавлена!", reply_markup=categories_keyboard())
+    # Новая категория
+    if user_data.get("awaiting_category_name"):
+        user_data["new_category_name"] = text
+        user_data.pop("awaiting_category_name")
+        user_data["awaiting_category_emoji"] = True
+        await update.message.reply_text("Введите эмодзи для этой категории:")
+        return
+    if user_data.get("awaiting_category_emoji"):
+        emoji = text
+        category_name = user_data.pop("new_category_name")
+        shopping_list[category_name] = {"emoji": emoji, "items": []}
+        save_data()
+        user_data.pop("awaiting_category_emoji")
+        await update.message.reply_text(f"Категория {emoji} {category_name} добавлена!", reply_markup=main_menu())
         return
 
-    # --- Добавление товара ---
-    if mode == "adding_item":
-        cat = context.user_data["cat"]
-        item_name = update.message.text.strip()
+    # Добавление товаров
+    if user_data.get("awaiting_items"):
+        items = [i.strip() for i in text.split(",") if i.strip()]
+        category = user_data.get("selected_category")
+        if not category:
+            await update.message.reply_text("Выберите категорию через меню '📂 Категории'")
+            return
+        for item in items:
+            shopping_list[category]["items"].append({"name": item, "bought": False})
+        save_data()
+        user_data.pop("awaiting_items")
+        user_data.pop("selected_category", None)
+        for uid in AUTHORIZED_USERS:
+            if uid != update.effective_user.id:
+                try:
+                    await context.bot.send_message(uid, f"📝 {update.effective_user.first_name} добавил(а): {', '.join(items)} в категорию {shopping_list[category]['emoji']} {category}")
+                except:
+                    pass
+        await update.message.reply_text("Товары добавлены!", reply_markup=main_menu())
+        return
 
-        data["categories"][cat]["items"].append({"name": item_name, "done": False})
-        save_data(data)
-
-        context.user_data["mode"] = None
-        context.user_data["cat"] = None
-        await update.message.reply_text(
-            f"Товар добавлен в категорию {cat}!",
-            reply_markup=category_items_keyboard(cat)
-        )
-
-        # Уведомление второго пользователя
-        for uid in ALLOWED_USERS:
-            if uid != user_id:
-                await context.bot.send_message(uid, f"Добавлен новый товар в категории {cat}: {item_name}")
-
-# ----------------------------------------------------------
-async def main():
-    application = ApplicationBuilder().token(BOT_TOKEN).build()
-
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CallbackQueryHandler(callback_handler))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_input))
-
-    PORT = int(os.environ.get("PORT", "10000"))
-
-    # --- Главный запуск webhook ---
-    await application.run_webhook(
+# ---------------- Запуск ----------------
+def main():
+    app = ApplicationBuilder().token(TOKEN).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CallbackQueryHandler(button_callback))
+    app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_text))
+    print("Бот запущен на webhook...")
+    app.run_webhook(
         listen="0.0.0.0",
         port=PORT,
-        url_path=BOT_TOKEN,
-        webhook_url=f"https://{os.getenv('RENDER_EXTERNAL_HOSTNAME')}/{BOT_TOKEN}",
+        url_path=TOKEN,
+        webhook_url=f"{WEBHOOK_URL}/{TOKEN}"
     )
 
 if __name__ == "__main__":
-    import asyncio
-    asyncio.run(main())
+    main()
